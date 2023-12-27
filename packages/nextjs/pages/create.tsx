@@ -24,7 +24,9 @@ export type TransactionData = {
 };
 
 export const POOL_SERVER_URL =
-  getTargetNetwork().id === chains.hardhat.id ? "http://localhost:49832/" : "https://backend.multisig.holdings:49832/";
+  getTargetNetwork().id === chains.hardhat.id
+    ? "http://localhost:49832/api"
+    : "https://multisig-backend-tau.vercel.app/api";
 
 const CreatePage: FC = () => {
   const isMounted = useIsMounted();
