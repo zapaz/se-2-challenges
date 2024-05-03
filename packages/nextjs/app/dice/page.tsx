@@ -1,216 +1,117 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import type { NextPage } from "next";
-import { formatEther, parseEther } from "viem";
-import { useBalance } from "wagmi";
-import { Amount } from "~~/components/Amount";
-import { Roll, RollEvents } from "~~/components/RollEvents";
-import { Winner, WinnerEvents } from "~~/components/WinnerEvents";
-import { Address } from "~~/components/scaffold-eth";
+import { useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { parseEther } from "viem";
 import {
-  useScaffoldContract,
-  useScaffoldContractRead,
-  useScaffoldContractWrite,
-  useScaffoldEventHistory,
-  useScaffoldEventSubscriber,
-} from "~~/hooks/scaffold-eth";
-import { wrapInTryCatch } from "~~/utils/scaffold-eth/common";
+  useAccount,
+  useBalance,
+  useBlockNumber,
+  useConnect,
+  useDisconnect,
+  useWatchContractEvent,
+  useWriteContract,
+} from "wagmi";
+import { useDeployedContractInfo } from "~~/hooks/scaffold-eth";
 
-const ROLL_ETH_VALUE = "0.002";
-const MAX_TABLE_ROWS = 10;
+function App() {
+  const account = useAccount();
+  const { connectors, connect, status, error } = useConnect();
+  const { disconnect } = useDisconnect();
+  const { data: deployedContractData } = useDeployedContractInfo("DiceGame");
 
-const DiceGame: NextPage = () => {
-  const [rolls, setRolls] = useState<Roll[]>([]);
-  const [winners, setWinners] = useState<Winner[]>([]);
+  const queryClient = useQueryClient();
+  const { writeContract } = useWriteContract();
 
-  const videoRef = useRef<HTMLVideoElement>(null);
-
-  const [rolled, setRolled] = useState(false);
-  const [isRolling, setIsRolling] = useState(false);
-
-  const { data: riggedRollContract } = useScaffoldContract({ contractName: "RiggedRoll" });
-  const { data: riggedRollBalance } = useBalance({
-    address: riggedRollContract?.address,
+  // comment this part to test without watch (also comment balance on line 59)
+  const { data: blockNumber } = useBlockNumber({
     watch: true,
+    chainId: account.chainId,
   });
-  const { data: prize } = useScaffoldContractRead({ contractName: "DiceGame", functionName: "prize" });
-
-  const { data: rollsHistoryData, isLoading: rollsHistoryLoading } = useScaffoldEventHistory({
-    contractName: "DiceGame",
-    eventName: "Roll",
-    fromBlock: 0n,
+  const { data: balance, queryKey } = useBalance({
+    address: account.addresses?.[0],
   });
 
   useEffect(() => {
-    if (!rolls.length && !!rollsHistoryData?.length && !rollsHistoryLoading) {
-      setRolls(
-        (
-          rollsHistoryData?.map(({ args }) => ({
-            address: args.player as string,
-            amount: Number(args.amount),
-            roll: (args.roll as bigint).toString(16).toUpperCase(),
-          })) || []
-        ).slice(0, MAX_TABLE_ROWS),
-      );
-    }
-  }, [rolls, rollsHistoryData, rollsHistoryLoading]);
+    queryClient.invalidateQueries({ queryKey });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blockNumber, queryClient]);
+  // end of part to comment
 
-  useScaffoldEventSubscriber({
-    contractName: "DiceGame",
-    eventName: "Roll",
-    listener: logs => {
-      logs.map(log => {
-        const { player, amount, roll } = log.args;
-
-        if (player && amount && roll !== undefined) {
-          setIsRolling(false);
-          setRolls(rolls =>
-            [{ address: player, amount: Number(amount), roll: roll.toString(16).toUpperCase() }, ...rolls].slice(
-              0,
-              MAX_TABLE_ROWS,
-            ),
-          );
-        }
+  useWatchContractEvent({
+    address: deployedContractData?.address,
+    abi: deployedContractData?.abi,
+    chainId: account.chainId,
+    onLogs: (logs: any) => {
+      console.log(logs, "🟣 logs");
+      logs.map((log: any) => {
+        console.log(log, "🟣 log");
       });
     },
-  });
-
-  const { data: winnerHistoryData, isLoading: winnerHistoryLoading } = useScaffoldEventHistory({
-    contractName: "DiceGame",
-    eventName: "Winner",
-    fromBlock: 0n,
-  });
-
-  useEffect(() => {
-    if (!winners.length && !!winnerHistoryData?.length && !winnerHistoryLoading) {
-      setWinners(
-        (
-          winnerHistoryData?.map(({ args }) => ({
-            address: args.winner as string,
-            amount: args.amount as bigint,
-          })) || []
-        ).slice(0, MAX_TABLE_ROWS),
-      );
-    }
-  }, [winnerHistoryData, winnerHistoryLoading, winners.length]);
-
-  useScaffoldEventSubscriber({
-    contractName: "DiceGame",
-    eventName: "Winner",
-    listener: logs => {
-      logs.map(log => {
-        const { winner, amount } = log.args;
-
-        if (winner && amount) {
-          setIsRolling(false);
-          setWinners(winners => [{ address: winner, amount }, ...winners].slice(0, MAX_TABLE_ROWS));
-        }
-      });
+    onError(error: any) {
+      console.log("ERROR FROM WATCH CONTRACT EVENT", error);
     },
+    eventName: "Roll",
   });
-
-  const { writeAsync: randomDiceRoll, isError: rollTheDiceError } = useScaffoldContractWrite({
-    contractName: "DiceGame",
-    functionName: "rollTheDice",
-    value: parseEther(ROLL_ETH_VALUE),
-  });
-
-  const { writeAsync: riggedRoll, isError: riggedRollError } = useScaffoldContractWrite({
-    contractName: "RiggedRoll",
-    functionName: "riggedRoll",
-    gas: 1_000_000n,
-  });
-
-  useEffect(() => {
-    if (rollTheDiceError || riggedRollError) {
-      setIsRolling(false);
-      setRolled(false);
-    }
-  }, [riggedRollError, rollTheDiceError]);
-
-  useEffect(() => {
-    if (videoRef.current && !isRolling) {
-      // show last frame
-      videoRef.current.currentTime = 9999;
-    }
-  }, [isRolling]);
 
   return (
-    <div className="py-10 px-10">
-      <div className="grid grid-cols-3 max-lg:grid-cols-1">
-        <div className="max-lg:row-start-2">
-          <RollEvents rolls={rolls} />
+    <>
+      <div>
+        {/* Added to base example */}
+        <h3>Balance</h3>
+        <div>{balance ? balance.formatted : 0} </div>
+
+        <div>(trigger requires 0.002 eth)</div>
+
+        <button
+          className="btn"
+          onClick={() => {
+            if (!deployedContractData) {
+              console.log("🟣 no contract data");
+              return;
+            }
+            writeContract({
+              address: deployedContractData?.address,
+              abi: deployedContractData?.abi,
+              functionName: "rollTheDice",
+              args: [],
+              value: parseEther("0.002"),
+            });
+          }}
+        >
+          Trigger event
+        </button>
+        {/* End of added part */}
+
+        <h2>Account</h2>
+
+        <div>
+          status: {account.status}
+          <br />
+          addresses: {JSON.stringify(account.addresses)}
+          <br />
+          chainId: {account.chainId}
         </div>
 
-        <div className="flex flex-col items-center pt-4 max-lg:row-start-1">
-          <div className="flex w-full justify-center">
-            <span className="text-xl"> Roll a 0, 1, 2, 3, 4 or 5 to win the prize! </span>
-          </div>
-
-          <div className="flex items-center mt-1">
-            <span className="text-lg mr-2">Prize:</span>
-            <Amount amount={prize ? Number(formatEther(prize)) : 0} showUsdPrice className="text-lg" />
-          </div>
-
-          <button
-            onClick={async () => {
-              if (!rolled) {
-                setRolled(true);
-              }
-              setIsRolling(true);
-              const wrappedRandomDiceRoll = wrapInTryCatch(randomDiceRoll, "randomDiceRoll");
-              await wrappedRandomDiceRoll();
-            }}
-            disabled={isRolling}
-            className="mt-2 btn btn-secondary btn-xl normal-case font-xl text-lg"
-          >
-            Roll the dice!
+        {account.status === "connected" && (
+          <button className="btn" type="button" onClick={() => disconnect()}>
+            Disconnect
           </button>
-          <div className="mt-4 pt-2 flex flex-col items-center w-full justify-center border-t-4 border-primary">
-            <span className="text-2xl">Rigged Roll</span>
-            <div className="flex mt-2 items-center">
-              <span className="mr-2 text-lg">Address:</span> <Address size="lg" address={riggedRollContract?.address} />{" "}
-            </div>
-            <div className="flex mt-1 items-center">
-              <span className="text-lg mr-2">Balance:</span>
-              <Amount amount={Number(riggedRollBalance?.formatted || 0)} showUsdPrice className="text-lg" />
-            </div>
-          </div>
-          {/* <button
-              onClick={async () => {
-              if (!rolled) {
-                setRolled(true);
-              }
-              setIsRolling(true);
-              const wrappedRiggedRoll = wrapInTryCatch(riggedRoll, "riggedRoll");
-              await wrappedRiggedRoll();
-            }}
-            disabled={isRolling}
-            className="mt-2 btn btn-secondary btn-xl normal-case font-xl text-lg"
-          >
-            Rigged Roll!
-            </button> */}
-
-          <div className="flex mt-8">
-            {rolled ? (
-              isRolling ? (
-                <video key="rolling" width={300} height={300} loop src="/rolls/Spin.webm" autoPlay />
-              ) : (
-                <video key="rolled" width={300} height={300} src={`/rolls/${rolls[0]?.roll || "0"}.webm`} autoPlay />
-              )
-            ) : (
-              <video ref={videoRef} key="last" width={300} height={300} src={`/rolls/${rolls[0]?.roll || "0"}.webm`} />
-            )}
-          </div>
-        </div>
-
-        <div className="max-lg:row-start-3">
-          <WinnerEvents winners={winners} />
-        </div>
+        )}
       </div>
-    </div>
-  );
-};
 
-export default DiceGame;
+      <div>
+        <h2>Connect</h2>
+        {connectors.map(connector => (
+          <button className="btn" key={connector.uid} onClick={() => connect({ connector })} type="button">
+            {connector.name}
+          </button>
+        ))}
+        <div>{status}</div>
+        <div>{error?.message}</div>
+      </div>
+    </>
+  );
+}
+
+export default App;
