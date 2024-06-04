@@ -23,7 +23,15 @@ const deployMetaMultiSigWallet: DeployFunction = async function (hre: HardhatRun
   await deploy("MetaMultiSigWallet", {
     from: deployer,
     // Contract constructor arguments
-    args: [31337, ["**YOUR FRONTEND ADDRESS**"], 1],
+    args: [
+      31337,
+      [
+        "0x66270Aca8F0CA15a51aC8de302cC07a58e62Afa8",
+        "0x60f90F801509E5B45aeBCC0fc373b45e3471F187",
+        "0xb5082607fDCC1333fe66a764083a7F2A34B08464",
+      ],
+      2,
+    ],
     log: true,
     // autoMine: can be passed to the deploy function to make the deployment process faster on local networks by
     // automatically mining the contract deployment transaction. There is no effect on live networks.

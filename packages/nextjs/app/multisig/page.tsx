@@ -14,7 +14,7 @@ const Multisig: FC = () => {
   const { data: executeTransactionEvents } = useScaffoldEventHistory({
     contractName: "MetaMultiSigWallet",
     eventName: "ExecuteTransaction",
-    fromBlock: 0n,
+    fromBlock: 6038000n,
   });
 
   return (
